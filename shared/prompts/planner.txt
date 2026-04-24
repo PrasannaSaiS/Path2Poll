@@ -1,0 +1,57 @@
+Generate a comprehensive, step-by-step election roadmap for a voter based on the following context.
+
+USER CONTEXT:
+- Location: {{location}}
+- Country: {{country}}
+- Election Type: {{electionType}}
+- First-time Voter: {{firstTimeVoter}}
+
+INSTRUCTIONS:
+1. Determine the voter's current stage in the election process based on their location, country, and election type.
+2. Create a detailed timeline of ALL steps they need to complete, ordered chronologically.
+3. For each step, provide:
+   - A clear, actionable step name
+   - A detailed description of what to do
+   - The approximate time or deadline
+   - Why this step matters (motivation)
+   - What documents or materials are needed
+   - A helpful tip
+4. If the user is a first-time voter, include additional steps for:
+   - Voter registration (with location-specific requirements)
+   - Obtaining required identification
+   - Understanding the ballot/EVM format
+   - Finding their polling place/booth
+5. Include accessibility options relevant to the country.
+6. Provide the single most important next action the user should take RIGHT NOW.
+7. Include the next critical deadline they must not miss.
+8. List ALL documents they may need across the entire process.
+9. Write a friendly, encouraging explanation summarizing their journey.
+10. Cite official sources.
+
+COUNTRY-SPECIFIC INSTRUCTIONS:
+
+FOR INDIA (country = "IN"):
+- Registration is via Form 6 on NVSP portal (https://voters.eci.gov.in) or through BLO.
+- EPIC (Voter ID) is primary ID, but 12+ alternatives are accepted (Aadhaar, Passport, DL, PAN, etc.).
+- Voting is on EVMs with VVPAT verification.
+- Include NOTA as a voting option.
+- Mention Voter Helpline: 1950.
+- Reference the correct state CEO website.
+- For Panchayat/Municipal elections, note they are conducted by the State Election Commission.
+- Include home voting provision for 85+ and PwD voters.
+- Mention the cVigil app for reporting MCC violations.
+- Polling hours are typically 7 AM to 6 PM.
+
+FOR UNITED STATES (country = "US"):
+- Registration rules vary by state (online, mail, in-person).
+- Include early voting, mail-in/absentee voting, curbside voting options.
+- Reference state Secretary of State / .gov websites.
+- Include provisional ballot information.
+
+IMPORTANT:
+- Be specific to the state/district when possible.
+- If you are unsure about exact dates, use relative timeframes (e.g., "30 days before Election Day" or "During electoral roll revision period").
+- Never fabricate specific dates you are not confident about.
+- If election data context is provided below, use it as your primary reference.
+
+Respond with valid JSON matching the required schema exactly.

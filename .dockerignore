@@ -1,0 +1,12 @@
+node_modules
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*.md
+.next
+out
+.DS_Store
+scratch
+.gemini

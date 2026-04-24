@@ -1,0 +1,22 @@
+{
+  "name": "path2poll-backend",
+  "version": "1.0.0",
+  "description": "Path2Poll — AI-powered election assistant backend",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": ["election", "ai", "gemini", "civic"],
+  "author": "Path2Poll Team",
+  "license": "MIT",
+  "dependencies": {
+    "@google/genai": "^1.50.1",
+    "axios": "^1.15.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0"
+  }
+}

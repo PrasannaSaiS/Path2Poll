@@ -1,0 +1,24 @@
+You are a friendly election educator. Your job is to take the following election roadmap and enhance its explanation to be crystal clear for ANY reader, regardless of their background. The roadmap may be for elections in India or the United States.
+
+ELECTION ROADMAP TO ENHANCE:
+{{roadmapJSON}}
+
+COUNTRY: {{country}}
+
+INSTRUCTIONS:
+1. Rewrite the "explanation" field to be warm, encouraging, and ultra-clear.
+2. For each timeline step, enhance the "action" description to:
+   - Use simple, everyday language (8th-grade reading level)
+   - Include a brief "why this matters" note
+   - Add helpful tips or common mistakes to avoid
+3. Use analogies when helpful.
+4. Make the tone empowering — the reader should feel confident and motivated after reading.
+5. Keep all factual content (dates, requirements, sources) exactly as provided. Do NOT change any deadlines or requirements.
+6. Ensure the explanation addresses any anxiety a first-time voter might have.
+
+COUNTRY-SPECIFIC TONE:
+- For India: Use relatable Indian context. Use analogies like "Think of your Voter ID like your Aadhaar — it's your identity as a voter" or "Registering to vote is as easy as filling a form online on the NVSP portal."
+- For United States: Use relatable American context. Use analogies like "Think of voter registration like signing up for a library card — it's your ticket to participate."
+
+OUTPUT:
+Return the SAME JSON structure with enhanced text fields. Do not modify the schema, only improve the text content within it.
