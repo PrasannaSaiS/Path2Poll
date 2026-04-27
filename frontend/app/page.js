@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import HeroSection from '../components/HeroSection';
 import ChatPanel from '../components/ChatPanel';
@@ -16,22 +16,26 @@ export default function Home() {
     const [view, setView] = useState(VIEW.HERO);
     const [timelineData, setTimelineData] = useState(null);
     const [error, setError] = useState(null);
+    const [statusMessage, setStatusMessage] = useState('');
 
-    const handleGenerate = async (context) => {
+    const handleGenerate = useCallback(async (context) => {
         setError(null);
         setView(VIEW.LOADING);
+        setStatusMessage('Generating your election roadmap...');
         try {
             const data = await generateTimeline(context);
             setTimelineData(data);
             setView(VIEW.TIMELINE);
+            setStatusMessage('Your election roadmap is ready.');
         } catch (err) {
             setError(err.message || 'Failed to generate your roadmap. Please try again.');
             setView(VIEW.GUIDE);
+            setStatusMessage('Failed to generate roadmap. Please try again.');
         }
-    };
+    }, []);
 
     return (
-        <main className="min-h-screen relative overflow-hidden" id="app-root">
+        <main className="min-h-screen relative overflow-hidden" id="main-content" role="main" aria-label="Path2Poll Election Assistant">
             {/* Persistent header for non-hero views */}
             {view !== VIEW.HERO && (
                 <motion.header
@@ -121,6 +125,11 @@ export default function Home() {
                         </motion.div>
                     )}
                 </AnimatePresence>
+            </div>
+
+            {/* Screen reader announcements for view changes */}
+            <div aria-live="polite" aria-atomic="true" className="sr-only" role="status">
+                {statusMessage}
             </div>
         </main>
     );

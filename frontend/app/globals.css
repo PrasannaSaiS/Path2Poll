@@ -59,6 +59,38 @@ body {
   border-radius: 4px;
 }
 
+/* Skip navigation link */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 9999;
+  padding: 12px 24px;
+  background: var(--color-accent);
+  color: white;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border-radius: 0 0 8px 8px;
+  text-decoration: none;
+  transition: top 0.2s ease;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+/* Screen reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 @layer utilities {
   /* Glassmorphism panels */
   .glass-panel {
@@ -248,4 +280,37 @@ body {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
+}
+
+/* Respect user preference for reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .shimmer {
+    animation: none;
+    background: rgba(30, 36, 48, 0.5);
+  }
+}
+
+/* High contrast mode support */
+@media (forced-colors: active) {
+  .glass-panel,
+  .glass-panel-hover {
+    border: 2px solid CanvasText;
+  }
+
+  .btn-primary {
+    border: 2px solid ButtonText;
+  }
+
+  .badge {
+    border: 1px solid CanvasText;
+  }
 }

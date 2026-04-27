@@ -45,7 +45,7 @@ export default function ChatMode({ onBack }) {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto space-y-4 pr-2 pb-4 min-h-0">
+            <div className="flex-1 overflow-y-auto space-y-4 pr-2 pb-4 min-h-0" role="log" aria-live="polite" aria-label="Chat messages">
                 <AnimatePresence initial={false}>
                     {messages.map((msg, i) => (
                         <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}

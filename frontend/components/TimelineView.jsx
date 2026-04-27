@@ -9,7 +9,7 @@ export default function TimelineView({ data, onBack }) {
     const totalSteps = data.timeline?.length || 0;
 
     return (
-        <div className="w-full max-w-3xl mx-auto space-y-6 pb-12">
+        <section className="w-full max-w-3xl mx-auto space-y-6 pb-12" aria-label="Election Roadmap Results">
             {/* Summary Card */}
             <motion.div
                 initial={{ opacity: 0, y: -20 }}
@@ -91,15 +91,17 @@ export default function TimelineView({ data, onBack }) {
             </motion.div>
 
             {/* Timeline Steps */}
-            <div className="space-y-4 pt-2">
+            <div className="space-y-4 pt-2" role="list" aria-label="Election timeline steps">
                 <h3 className="text-lg font-bold text-white px-2">Step-by-Step Guide</h3>
                 {data.timeline?.map((step, i) => (
-                    <StepCard key={i} step={step} index={i} total={totalSteps} />
+                    <div key={i} role="listitem">
+                        <StepCard step={step} index={i} total={totalSteps} />
+                    </div>
                 ))}
             </div>
 
             {/* Sources */}
             <SourcePanel source={data.official_source} additionalSources={data.additional_sources} />
-        </div>
+        </section>
     );
 }

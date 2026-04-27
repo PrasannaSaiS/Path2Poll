@@ -38,6 +38,8 @@ export default function RootLayout({ children }) {
     return (
         <html lang="en" className="scroll-smooth">
             <head>
+                <meta name="theme-color" content="#06080f" />
+                <meta name="color-scheme" content="dark" />
                 <link rel="preconnect" href="https://fonts.googleapis.com" />
                 <link
                     rel="preconnect"
@@ -45,7 +47,12 @@ export default function RootLayout({ children }) {
                     crossOrigin="anonymous"
                 />
             </head>
-            <body className="antialiased">{children}</body>
+            <body className="antialiased">
+                <a href="#main-content" className="skip-link">
+                    Skip to main content
+                </a>
+                {children}
+            </body>
         </html>
     );
 }

@@ -2,22 +2,66 @@ import { GoogleGenAI } from "@google/genai";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { logger, withTiming } from "./loggingService.js";
+import { cacheGet, cacheSet, generateCacheKey, CACHE_TTL } from "./cacheService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ---------------------------------------------------------------------------
-// Prompt loader
+// Configuration
+// ---------------------------------------------------------------------------
+
+/** @type {string} Gemini model identifier */
+const MODEL = "gemini-2.5-flash-lite";
+
+/** @type {{ retries: number, baseDelayMs: number }} Retry configuration */
+const RETRY_CONFIG = { retries: 2, baseDelayMs: 1000 };
+
+// ---------------------------------------------------------------------------
+// Prompt loader — prompts are loaded once at startup for efficiency
 // ---------------------------------------------------------------------------
 const promptsDir = path.join(__dirname, "../../shared/prompts");
 
+/** @type {Map<string, string>} Cached prompt templates */
+const promptCache = new Map();
+
+/**
+ * Loads a prompt template from disk. Results are cached in memory so that
+ * subsequent calls return instantly without filesystem I/O.
+ *
+ * @param {string} name - Prompt filename without extension (e.g. "planner")
+ * @returns {string} The prompt template contents
+ * @throws {Error} If the prompt file does not exist
+ */
 function loadPrompt(name) {
-    return fs.readFileSync(path.join(promptsDir, `${name}.txt`), "utf8");
+    if (promptCache.has(name)) {
+        return promptCache.get(name);
+    }
+    const content = fs.readFileSync(path.join(promptsDir, `${name}.txt`), "utf8");
+    promptCache.set(name, content);
+    logger.debug(`Prompt loaded and cached: ${name}`);
+    return content;
+}
+
+// Pre-load all prompts at module initialization for maximum efficiency
+try {
+    ["system", "planner", "explainer", "verifier", "chat"].forEach(loadPrompt);
+    logger.info("All prompt templates pre-loaded and cached");
+} catch (err) {
+    logger.warn("Some prompts could not be pre-loaded", { error: err.message });
 }
 
 // ---------------------------------------------------------------------------
 // Gemini client (new @google/genai SDK)
 // ---------------------------------------------------------------------------
+
+/**
+ * Creates and returns a GoogleGenAI client instance.
+ *
+ * @returns {GoogleGenAI} Configured AI client
+ * @throws {Error} If GEMINI_API_KEY is not set
+ */
 function getAI() {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -26,11 +70,11 @@ function getAI() {
     return new GoogleGenAI({ apiKey });
 }
 
-const MODEL = "gemini-2.5-flash";
-
 // ---------------------------------------------------------------------------
 // JSON Schemas (plain JSON Schema, not SchemaType enums)
 // ---------------------------------------------------------------------------
+
+/** @type {Object} Schema for timeline API responses */
 const timelineSchema = {
     type: "object",
     properties: {
@@ -90,6 +134,7 @@ const timelineSchema = {
     ],
 };
 
+/** @type {Object} Schema for chat API responses */
 const chatSchema = {
     type: "object",
     properties: {
@@ -124,9 +169,30 @@ const chatSchema = {
     required: ["answer", "follow_up_questions", "needs_info"],
 };
 
+/** @type {Object} Schema for step explanation responses */
+const explainSchema = {
+    type: "object",
+    properties: {
+        explanation: { type: "string" },
+        tips: { type: "array", items: { type: "string" } },
+        common_mistakes: { type: "array", items: { type: "string" } },
+    },
+    required: ["explanation", "tips", "common_mistakes"],
+};
+
 // ---------------------------------------------------------------------------
 // Core generate helper using new SDK
 // ---------------------------------------------------------------------------
+
+/**
+ * Sends a prompt to the Gemini API and returns a parsed JSON response.
+ *
+ * @param {string} prompt            - The user prompt / content
+ * @param {string} systemInstruction - System-level instruction for the model
+ * @param {Object} schema            - JSON schema for structured output
+ * @returns {Promise<Object>} Parsed JSON response from the model
+ * @throws {Error} If the API call fails or response is not valid JSON
+ */
 async function generate(prompt, systemInstruction, schema) {
     const ai = getAI();
 
@@ -147,16 +213,29 @@ async function generate(prompt, systemInstruction, schema) {
 }
 
 // ---------------------------------------------------------------------------
-// Retry helper
+// Retry helper with exponential backoff
 // ---------------------------------------------------------------------------
-async function callWithRetry(fn, retries = 2) {
+
+/**
+ * Wraps an async function with automatic retry logic and exponential backoff.
+ *
+ * @param {Function} fn                  - Async function to execute
+ * @param {number}   [retries]          - Max number of retries (default from config)
+ * @param {number}   [baseDelayMs]      - Base delay between retries in ms
+ * @returns {Promise<*>} Result of the successful function call
+ * @throws {Error} If all retry attempts are exhausted
+ */
+async function callWithRetry(fn, retries = RETRY_CONFIG.retries, baseDelayMs = RETRY_CONFIG.baseDelayMs) {
     for (let attempt = 0; attempt <= retries; attempt++) {
         try {
             return await fn();
         } catch (err) {
-            console.error(`[Gemini] Attempt ${attempt + 1} failed:`, err.message);
+            logger.warn(`Gemini attempt ${attempt + 1} failed`, {
+                error: err.message,
+                retriesLeft: retries - attempt,
+            });
             if (attempt === retries) throw err;
-            await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+            await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
         }
     }
 }
@@ -164,6 +243,14 @@ async function callWithRetry(fn, retries = 2) {
 // ---------------------------------------------------------------------------
 // STAGE 1 — Planner: Generate raw timeline
 // ---------------------------------------------------------------------------
+
+/**
+ * Stage 1 of the AI pipeline. Generates a raw election timeline based on
+ * user context and any available civic/election data.
+ *
+ * @param {Object} context - User context with location, country, electionType, etc.
+ * @returns {Promise<Object>} Raw timeline data
+ */
 async function runPlanner(context) {
     const systemPrompt = loadPrompt("system");
     const plannerTemplate = loadPrompt("planner");
@@ -184,16 +271,30 @@ async function runPlanner(context) {
     }
 
     return callWithRetry(async () => {
-        console.log(`[Gemini:Planner] Generating timeline for ${context.location} (${country})...`);
-        const result = await generate(prompt, systemPrompt, timelineSchema);
-        console.log("[Gemini:Planner] ✓ Raw timeline generated");
-        return result;
+        return withTiming("Planner", async () => {
+            const result = await generate(prompt, systemPrompt, timelineSchema);
+            logger.info("Planner: Raw timeline generated", {
+                country,
+                location: context.location,
+                stepsCount: result.timeline?.length || 0,
+            });
+            return result;
+        });
     });
 }
 
 // ---------------------------------------------------------------------------
 // STAGE 2 — Explainer: Enhance clarity
 // ---------------------------------------------------------------------------
+
+/**
+ * Stage 2 of the AI pipeline. Takes the raw timeline and enhances it with
+ * simpler language, better tips, and more encouraging explanations.
+ *
+ * @param {Object} rawTimeline - Raw timeline from the Planner stage
+ * @param {string} country     - Country code ("IN" or "US")
+ * @returns {Promise<Object>} Enhanced timeline data
+ */
 async function runExplainer(rawTimeline, country) {
     const systemPrompt = loadPrompt("system");
     const explainerTemplate = loadPrompt("explainer");
@@ -203,16 +304,27 @@ async function runExplainer(rawTimeline, country) {
         .replace("{{country}}", country === "IN" ? "India" : "United States");
 
     return callWithRetry(async () => {
-        console.log("[Gemini:Explainer] Enhancing explanations...");
-        const result = await generate(prompt, systemPrompt, timelineSchema);
-        console.log("[Gemini:Explainer] ✓ Explanations enhanced");
-        return result;
+        return withTiming("Explainer", async () => {
+            const result = await generate(prompt, systemPrompt, timelineSchema);
+            logger.info("Explainer: Explanations enhanced");
+            return result;
+        });
     });
 }
 
 // ---------------------------------------------------------------------------
 // STAGE 3 — Verifier: Validate accuracy
 // ---------------------------------------------------------------------------
+
+/**
+ * Stage 3 of the AI pipeline. Cross-references the enhanced timeline against
+ * civic data, assigns confidence scores, and flags uncertainties.
+ *
+ * @param {Object} enhancedTimeline - Enhanced timeline from the Explainer stage
+ * @param {Object|null} contextData - Civic/election data for verification
+ * @param {string} country          - Country code ("IN" or "US")
+ * @returns {Promise<Object>} Verified timeline data
+ */
 async function runVerifier(enhancedTimeline, contextData, country) {
     const systemPrompt = loadPrompt("system");
     const verifierTemplate = loadPrompt("verifier");
@@ -223,18 +335,50 @@ async function runVerifier(enhancedTimeline, contextData, country) {
         .replace("{{country}}", country === "IN" ? "India" : "United States");
 
     return callWithRetry(async () => {
-        console.log("[Gemini:Verifier] Validating accuracy...");
-        const result = await generate(prompt, systemPrompt, timelineSchema);
-        console.log("[Gemini:Verifier] ✓ Verification complete");
-        return result;
+        return withTiming("Verifier", async () => {
+            const result = await generate(prompt, systemPrompt, timelineSchema);
+            logger.info("Verifier: Verification complete");
+            return result;
+        });
     });
 }
 
 // ---------------------------------------------------------------------------
 // PUBLIC: Full 3-stage pipeline
 // ---------------------------------------------------------------------------
+
+/**
+ * Runs the full 3-stage AI pipeline (Planner → Explainer → Verifier) to
+ * generate a verified, user-friendly election timeline.
+ *
+ * Results are cached in Firestore/memory to avoid redundant API calls for
+ * identical requests.
+ *
+ * @param {Object} context - Full user context
+ * @param {string} context.location      - User's location
+ * @param {string} context.country       - Detected country code
+ * @param {string} context.electionType  - Type of election
+ * @param {boolean} context.firstTimeVoter - First-time voter flag
+ * @param {Object|null} context.contextData - Civic/election data
+ * @returns {Promise<Object>} Final verified timeline
+ * @throws {Error} If the pipeline fails entirely
+ */
 export async function generateTimeline(context) {
     const country = context.country || "US";
+
+    // Check cache first
+    const cacheKey = generateCacheKey(
+        "timeline",
+        context.location,
+        context.electionType,
+        context.firstTimeVoter,
+        country
+    );
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+        logger.info("Timeline served from cache", { location: context.location });
+        return cached;
+    }
 
     try {
         // Stage 1 — Plan
@@ -245,7 +389,7 @@ export async function generateTimeline(context) {
         try {
             enhanced = await runExplainer(rawTimeline, country);
         } catch (err) {
-            console.warn("[Gemini:Explainer] Failed, using raw timeline:", err.message);
+            logger.warn("Explainer failed, using raw timeline", { error: err.message });
             enhanced = rawTimeline;
         }
 
@@ -254,14 +398,20 @@ export async function generateTimeline(context) {
         try {
             verified = await runVerifier(enhanced, context.contextData, country);
         } catch (err) {
-            console.warn("[Gemini:Verifier] Failed, using enhanced timeline:", err.message);
+            logger.warn("Verifier failed, using enhanced timeline", { error: err.message });
             verified = enhanced;
         }
 
-        console.log(`[Gemini] ✓ Full 3-stage pipeline complete (${country})`);
+        logger.info(`Full 3-stage pipeline complete (${country})`, {
+            stepsCount: verified.timeline?.length || 0,
+        });
+
+        // Cache the result
+        await cacheSet(cacheKey, verified, CACHE_TTL.TIMELINE);
+
         return verified;
     } catch (error) {
-        console.error("[Gemini] Pipeline error:", error.message);
+        logger.error("Pipeline error", { error: error.message });
         throw new Error(`Failed to generate election roadmap: ${error.message}`);
     }
 }
@@ -269,6 +419,17 @@ export async function generateTimeline(context) {
 // ---------------------------------------------------------------------------
 // PUBLIC: Chat Q&A
 // ---------------------------------------------------------------------------
+
+/**
+ * Handles a conversational election Q&A query. Generates a structured
+ * response with answer, details, sources, and follow-up suggestions.
+ *
+ * @param {string} question            - User's question text
+ * @param {Object} [userContext={}]     - Optional user context (location, etc.)
+ * @param {Array}  [conversationHistory=[]] - Previous conversation messages
+ * @returns {Promise<Object>} Structured chat response
+ * @throws {Error} If the Gemini API call fails
+ */
 export async function generateChat(question, userContext = {}, conversationHistory = []) {
     const systemPrompt = loadPrompt("system");
     const chatTemplate = loadPrompt("chat");
@@ -285,16 +446,32 @@ export async function generateChat(question, userContext = {}, conversationHisto
         .replace("{{question}}", question);
 
     return callWithRetry(async () => {
-        console.log(`[Gemini:Chat] Processing question: "${question.substring(0, 60)}..."`);
-        const result = await generate(prompt, systemPrompt, chatSchema);
-        console.log("[Gemini:Chat] ✓ Chat response generated");
-        return result;
+        return withTiming("Chat", async () => {
+            const result = await generate(prompt, systemPrompt, chatSchema);
+            logger.info("Chat response generated", {
+                questionLength: question.length,
+                hasDetails: !!(result.details?.length),
+            });
+            return result;
+        });
     });
 }
 
 // ---------------------------------------------------------------------------
 // PUBLIC: Explain a single step (on-demand)
 // ---------------------------------------------------------------------------
+
+/**
+ * Generates a detailed, friendly explanation of a single timeline step.
+ * Covers what to do, why it matters, common mistakes, and tips.
+ *
+ * @param {Object} stepData              - Step data with step, action, time fields
+ * @param {string} stepData.step         - Step title
+ * @param {string} [stepData.action]     - Step action description
+ * @param {string} [stepData.time]       - Step deadline or time estimate
+ * @param {Object} [userContext={}]      - Optional user context
+ * @returns {Promise<Object>} Explanation with tips and common mistakes
+ */
 export async function explainStep(stepData, userContext = {}) {
     const systemPrompt = loadPrompt("system");
 
@@ -310,21 +487,13 @@ Provide a detailed, encouraging explanation that covers:
 3. Common mistakes to avoid
 4. Helpful tips
 
-Respond as JSON with fields: "explanation" (string), "tips" (array of strings), "common_mistakes" (array of strings).`;
-
-    const explainSchema = {
-        type: "object",
-        properties: {
-            explanation: { type: "string" },
-            tips: { type: "array", items: { type: "string" } },
-            common_mistakes: { type: "array", items: { type: "string" } },
-        },
-        required: ["explanation", "tips", "common_mistakes"],
-    };
+Respond with valid JSON matching the required schema exactly.`;
 
     return callWithRetry(async () => {
-        console.log(`[Gemini:Explain] Explaining step: ${stepData.step}`);
-        const result = await generate(prompt, systemPrompt, explainSchema);
-        return result;
+        return withTiming("ExplainStep", async () => {
+            const result = await generate(prompt, systemPrompt, explainSchema);
+            logger.info("Step explanation generated", { step: stepData.step });
+            return result;
+        });
     });
 }

@@ -176,7 +176,7 @@ export default function ChatPanel({ onGenerate, onBack }) {
     return (
         <motion.div initial={{opacity:0,y:20}} animate={{opacity:1,y:0}} className="w-full max-w-lg mx-auto">
             {/* Step indicators */}
-            <div className="flex items-center justify-center gap-2 mb-8" role="progressbar">
+            <div className="flex items-center justify-center gap-2 mb-8" role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={4} aria-label={`Step ${step + 1} of 4: ${STEPS[step].label}`}>
                 {STEPS.map((s,i) => {
                     const active=i===step, done=i<step;
                     return (<div key={s.id} className="flex items-center">
