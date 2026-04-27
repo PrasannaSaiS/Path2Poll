@@ -10,3 +10,6 @@ out
 .DS_Store
 scratch
 .gemini
+coverage
+__tests__
+tests
