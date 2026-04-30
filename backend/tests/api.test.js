@@ -98,6 +98,8 @@ describe("GET /api/health", () => {
         expect(res.body.timestamp).toBeDefined();
         expect(res.body.geminiConfigured).toBe(true);
         expect(res.body.civicConfigured).toBe(true);
+        expect(typeof res.body.uptime).toBe("number");
+        expect(res.body.googleCloud).toBeDefined();
     });
 
     test("includes cache stats", async () => {

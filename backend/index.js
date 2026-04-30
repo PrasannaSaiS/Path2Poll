@@ -1,3 +1,28 @@
+/**
+ * @module server
+ * @fileoverview Path2Poll Backend — Express.js API server.
+ *
+ * This is the main entry point for the Path2Poll backend. It configures
+ * the Express application with security middleware, request validation,
+ * structured logging, and all API route handlers.
+ *
+ * @description
+ * Architecture:
+ * - Security: Helmet (CSP), express-rate-limit, CORS, input sanitization
+ * - Observability: Structured logging (Google Cloud Logging), request IDs, response timing
+ * - Caching: In-memory LRU + Google Cloud Firestore (tiered)
+ * - AI Pipeline: 3-stage Gemini pipeline (Planner → Explainer → Verifier)
+ * - Data: Google Civic Information API (US) + India Knowledge Base
+ *
+ * Google Cloud Services used:
+ * - Google Cloud Run (deployment)
+ * - Google Gemini AI (structured JSON generation)
+ * - Google Civic Information API (election data)
+ * - Google Cloud Firestore (response caching)
+ * - Google Cloud Logging (structured log ingestion)
+ * - Google Analytics 4 (frontend usage tracking)
+ */
+
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
@@ -6,6 +31,7 @@ import compression from "compression";
 import path from "path";
 import { fileURLToPath } from "url";
 import rateLimit from "express-rate-limit";
+
 import { generateTimeline, generateChat, explainStep } from "./services/geminiService.js";
 import { getElectionData, buildContextData } from "./services/electionService.js";
 import { logger } from "./services/loggingService.js";
@@ -17,20 +43,34 @@ import {
     validateElectionData,
     validateExplainStep,
 } from "./middleware/validate.js";
+import { AppError } from "./errors/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 
-// Load environment variables
+// ---------------------------------------------------------------------------
+// Environment Configuration
+// ---------------------------------------------------------------------------
+
 dotenv.config({ path: path.join(rootDir, ".env") });
 dotenv.config();
 
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const PORT = process.env.PORT || 8080;
+
 logger.info("Path2Poll Backend Starting", {
     environment: process.env.NODE_ENV || "development",
+    nodeVersion: process.version,
     geminiConfigured: !!process.env.GEMINI_API_KEY,
     civicConfigured: !!process.env.CIVIC_INFORMATION_API,
+    googleCloudProject: process.env.GOOGLE_CLOUD_PROJECT || "none",
+    cloudRunService: process.env.K_SERVICE || "none",
 });
+
+// ---------------------------------------------------------------------------
+// Express Application
+// ---------------------------------------------------------------------------
 
 const app = express();
 
@@ -44,12 +84,16 @@ app.use(requestIdMiddleware);
 // Response time tracking
 app.use(responseTimeMiddleware);
 
-// Security headers (Helmet)
+// Security headers (Helmet) with Content Security Policy
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:"],
+            scriptSrc: [
+                "'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:",
+                "https://www.googletagmanager.com",
+                "https://www.google-analytics.com",
+            ],
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             fontSrc: ["'self'", "https://fonts.gstatic.com"],
             imgSrc: ["'self'", "data:", "https:"],
@@ -59,6 +103,9 @@ app.use(helmet({
                 "http://127.0.0.1:*",
                 "https://www.googleapis.com",
                 "https://generativelanguage.googleapis.com",
+                "https://www.google-analytics.com",
+                "https://analytics.google.com",
+                "https://region1.google-analytics.com",
             ],
         },
     },
@@ -67,7 +114,7 @@ app.use(helmet({
 
 // CORS configuration
 app.use(cors({
-    origin: process.env.NODE_ENV === "production" ? false : "*",
+    origin: IS_PRODUCTION ? false : "*",
     methods: ["GET", "POST"],
 }));
 
@@ -106,8 +153,11 @@ app.use((req, _res, next) => {
 // GET /api/health — Health check
 // ---------------------------------------------------------------------------
 /**
- * Health check endpoint for Cloud Run and monitoring.
- * Returns service status, API configuration, and cache statistics.
+ * Health check endpoint for Cloud Run liveness probes and monitoring.
+ * Returns service status, API configuration flags, and cache statistics.
+ *
+ * @route GET /api/health
+ * @returns {Object} Health check response
  */
 app.get("/api/health", (_req, res) => {
     const cache = cacheStats();
@@ -116,8 +166,15 @@ app.get("/api/health", (_req, res) => {
         service: "Path2Poll",
         version: process.env.K_REVISION || "local",
         timestamp: new Date().toISOString(),
+        uptime: Math.round(process.uptime()),
         geminiConfigured: !!process.env.GEMINI_API_KEY,
         civicConfigured: !!process.env.CIVIC_INFORMATION_API,
+        googleCloud: {
+            project: process.env.GOOGLE_CLOUD_PROJECT || null,
+            cloudRun: !!process.env.K_SERVICE,
+            loggingEnabled: !!(process.env.K_SERVICE || process.env.GOOGLE_CLOUD_PROJECT),
+            firestoreAvailable: cache.firestoreAvailable,
+        },
         cache: {
             memorySize: cache.memorySize,
             firestoreAvailable: cache.firestoreAvailable,
@@ -133,9 +190,11 @@ app.get("/api/health", (_req, res) => {
  * Validates and sanitizes input, detects country, builds context, and
  * returns a structured JSON timeline.
  *
+ * @route POST /api/timeline
  * @body {string} location - User's address or city+state
  * @body {string} [electionType="General"] - Type of election
  * @body {boolean} [firstTimeVoter=false] - Whether user is a first-time voter
+ * @returns {Object} Structured election timeline
  */
 app.post("/api/timeline", validateTimeline, async (req, res) => {
     const startTime = Date.now();
@@ -173,14 +232,16 @@ app.post("/api/timeline", validateTimeline, async (req, res) => {
 
         res.json(timeline);
     } catch (error) {
+        const latencyMs = Date.now() - startTime;
         logger.error("Timeline generation failed", {
             requestId: req.requestId,
             error: error.message,
-            latencyMs: Date.now() - startTime,
+            latencyMs,
         });
-        res.status(500).json({
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
             error: "Failed to generate election roadmap",
-            details: process.env.NODE_ENV === "production"
+            details: IS_PRODUCTION
                 ? "An internal error occurred. Please try again."
                 : error.message,
         });
@@ -194,9 +255,11 @@ app.post("/api/timeline", validateTimeline, async (req, res) => {
  * Handles conversational Q&A about elections.
  * Returns structured answers with sources and follow-up suggestions.
  *
+ * @route POST /api/chat
  * @body {string} message - User's question
  * @body {Object} [userContext] - User's location and election context
  * @body {Array} [conversationHistory] - Previous messages in the conversation
+ * @returns {Object} Structured chat response
  */
 app.post("/api/chat", validateChat, async (req, res) => {
     const startTime = Date.now();
@@ -220,9 +283,10 @@ app.post("/api/chat", validateChat, async (req, res) => {
             requestId: req.requestId,
             error: error.message,
         });
-        res.status(500).json({
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
             error: "Failed to process your question",
-            details: process.env.NODE_ENV === "production"
+            details: IS_PRODUCTION
                 ? "An internal error occurred. Please try again."
                 : error.message,
         });
@@ -236,7 +300,9 @@ app.post("/api/chat", validateChat, async (req, res) => {
  * Fetches election data for a given address.
  * Routes to Google Civic Information API (US) or India Knowledge Base.
  *
+ * @route POST /api/election-data
  * @body {string} address - User's address to look up
+ * @returns {Object} Election data with country routing
  */
 app.post("/api/election-data", validateElectionData, async (req, res) => {
     try {
@@ -254,9 +320,10 @@ app.post("/api/election-data", validateElectionData, async (req, res) => {
             requestId: req.requestId,
             error: error.message,
         });
-        res.status(500).json({
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
             error: "Failed to fetch election data",
-            details: process.env.NODE_ENV === "production"
+            details: IS_PRODUCTION
                 ? "An internal error occurred. Please try again."
                 : error.message,
         });
@@ -269,8 +336,10 @@ app.post("/api/election-data", validateElectionData, async (req, res) => {
 /**
  * Provides a detailed explanation of a single timeline step.
  *
+ * @route POST /api/explain-step
  * @body {Object} step - Step data with at least a `step` field
  * @body {Object} [userContext] - User's location and election context
+ * @returns {Object} Detailed explanation with tips and common mistakes
  */
 app.post("/api/explain-step", validateExplainStep, async (req, res) => {
     try {
@@ -288,9 +357,10 @@ app.post("/api/explain-step", validateExplainStep, async (req, res) => {
             requestId: req.requestId,
             error: error.message,
         });
-        res.status(500).json({
+        const statusCode = error instanceof AppError ? error.statusCode : 500;
+        res.status(statusCode).json({
             error: "Failed to explain step",
-            details: process.env.NODE_ENV === "production"
+            details: IS_PRODUCTION
                 ? "An internal error occurred. Please try again."
                 : error.message,
         });
@@ -302,7 +372,7 @@ app.post("/api/explain-step", validateExplainStep, async (req, res) => {
 // ---------------------------------------------------------------------------
 const frontendOutPath = path.join(__dirname, "../frontend/out");
 app.use(express.static(frontendOutPath, {
-    maxAge: process.env.NODE_ENV === "production" ? "7d" : 0,
+    maxAge: IS_PRODUCTION ? "7d" : 0,
     etag: true,
 }));
 
@@ -328,16 +398,28 @@ app.get("/{*splat}", (req, res, next) => {
 // ---------------------------------------------------------------------------
 /**
  * Express global error handler. Catches unhandled errors from middleware/routes.
+ * Uses the custom AppError class to determine status codes.
+ *
+ * @param {Error} err - The error that occurred
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} _next
  */
 app.use((err, req, res, _next) => {
+    const statusCode = err instanceof AppError ? err.statusCode : 500;
+    const isOperational = err instanceof AppError ? err.isOperational : false;
+
     logger.error("Unhandled server error", {
         requestId: req.requestId,
         error: err.message,
-        stack: process.env.NODE_ENV === "production" ? undefined : err.stack,
+        statusCode,
+        isOperational,
+        stack: IS_PRODUCTION ? undefined : err.stack,
     });
-    res.status(500).json({
+
+    res.status(statusCode).json({
         error: "Internal server error",
-        details: process.env.NODE_ENV === "production"
+        details: IS_PRODUCTION
             ? "An unexpected error occurred."
             : err.message,
     });
@@ -351,6 +433,8 @@ let server;
 /**
  * Handles graceful shutdown on SIGTERM/SIGINT.
  * Closes the HTTP server and allows in-flight requests to complete.
+ *
+ * @param {string} signal - The signal received (SIGTERM or SIGINT)
  */
 function gracefulShutdown(signal) {
     logger.info(`Received ${signal}. Shutting down gracefully...`);
@@ -375,11 +459,18 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 // ---------------------------------------------------------------------------
 // Start server
 // ---------------------------------------------------------------------------
-const PORT = process.env.PORT || 8080;
 server = app.listen(PORT, () => {
     logger.info(`Path2Poll server running on http://localhost:${PORT}`, {
         port: PORT,
         nodeVersion: process.version,
+        googleServices: [
+            "Gemini AI",
+            "Civic Information API",
+            "Cloud Logging",
+            "Cloud Firestore",
+            "Cloud Run",
+            "Google Analytics",
+        ],
     });
 });
 

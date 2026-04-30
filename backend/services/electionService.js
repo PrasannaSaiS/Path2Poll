@@ -1,3 +1,12 @@
+/**
+ * @module electionService
+ * @fileoverview Google Civic Information API integration and election data routing.
+ * Detects user location (US/India), fetches data from the appropriate source,
+ * and builds context for the Gemini AI pipeline.
+ *
+ * Google Services: Google Civic Information API (civicinfo/v2)
+ */
+
 import axios from "axios";
 import { isIndianLocation, getIndiaElectionContext } from "./indiaElectionData.js";
 import { logger } from "./loggingService.js";

@@ -1,9 +1,9 @@
-// ---------------------------------------------------------------------------
-// Input Validation Middleware
-// ---------------------------------------------------------------------------
-// Centralized request validation for all API endpoints.
-// Provides consistent error response format and reusable validators.
-// ---------------------------------------------------------------------------
+/**
+ * @module validate
+ * @fileoverview Input Validation Middleware for Path2Poll API.
+ * Provides centralized request validation for all API endpoints with
+ * consistent error response format, input sanitization, and reusable validators.
+ */
 
 import { logger } from "../services/loggingService.js";
 

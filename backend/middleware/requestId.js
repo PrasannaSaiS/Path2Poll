@@ -1,10 +1,11 @@
-// ---------------------------------------------------------------------------
-// Request ID Middleware
-// ---------------------------------------------------------------------------
-// Generates a unique request ID for every incoming request.
-// The ID is attached to the request object and returned in the response
-// headers for end-to-end tracing across logs and services.
-// ---------------------------------------------------------------------------
+/**
+ * @module requestId
+ * @fileoverview Request ID and Response Timing Middleware.
+ * Generates a unique request ID for every incoming request for end-to-end
+ * tracing across logs and Google Cloud services. Also tracks response latency.
+ *
+ * Supports Google Cloud Trace correlation via X-Cloud-Trace-Context header.
+ */
 
 import crypto from "crypto";
 

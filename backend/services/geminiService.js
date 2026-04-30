@@ -1,3 +1,18 @@
+/**
+ * @module geminiService
+ * @fileoverview Google Gemini AI pipeline for Path2Poll.
+ * Implements a 3-stage AI pipeline (Planner → Explainer → Verifier) using
+ * Google Gemini 2.5 Flash for structured election timeline generation.
+ *
+ * Features:
+ * - Structured JSON output with schema enforcement
+ * - Automatic retry with exponential backoff
+ * - Response caching via Google Cloud Firestore
+ * - Performance timing and structured logging
+ *
+ * Google Services: Google Gemini AI (@google/genai SDK)
+ */
+
 import { GoogleGenAI } from "@google/genai";
 import fs from "fs";
 import path from "path";

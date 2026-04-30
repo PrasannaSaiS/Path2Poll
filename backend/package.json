@@ -8,15 +8,24 @@
     "start": "node index.js",
     "dev": "node --watch index.js",
     "test": "npx --node-options=--experimental-vm-modules jest --coverage --forceExit --detectOpenHandles",
-    "test:watch": "npx --node-options=--experimental-vm-modules jest --watch"
+    "test:watch": "npx --node-options=--experimental-vm-modules jest --watch",
+    "lint": "npx eslint . --ignore-pattern node_modules --ignore-pattern coverage"
   },
   "jest": {
     "testEnvironment": "node",
     "transform": {},
-    "testMatch": ["**/tests/**/*.test.js"],
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
     "coverageDirectory": "coverage",
-    "coverageReporters": ["text", "lcov"],
-    "coveragePathIgnorePatterns": ["/node_modules/", "/tests/"]
+    "coverageReporters": [
+      "text",
+      "lcov"
+    ],
+    "coveragePathIgnorePatterns": [
+      "/node_modules/",
+      "/tests/"
+    ]
   },
   "keywords": [
     "election",
@@ -40,6 +49,7 @@
   },
   "devDependencies": {
     "@jest/globals": "^30.3.0",
+    "eslint": "^10.2.1",
     "jest": "^30.3.0",
     "supertest": "^7.2.2"
   }

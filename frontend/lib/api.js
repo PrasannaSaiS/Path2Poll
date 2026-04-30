@@ -1,8 +1,11 @@
 /**
+ * @module api
  * @fileoverview Frontend API client for Path2Poll backend.
  * Provides functions for all API endpoints with built-in error handling,
- * request timeouts, and input sanitization.
+ * request timeouts, input sanitization, and Google Analytics event tracking.
  */
+
+import { trackEvent } from '../components/GoogleAnalytics';
 
 /** @type {string} Base URL for API requests — auto-detects local vs production */
 const API_BASE = typeof window !== 'undefined'
@@ -84,6 +87,10 @@ async function apiRequest(endpoint, body, options = {}) {
  * @returns {Promise<Object>} Generated timeline data
  */
 export async function generateTimeline(context, options) {
+    trackEvent('generate_timeline', {
+        election_type: context.electionType || 'General',
+        first_time_voter: context.firstTimeVoter || false,
+    });
     return apiRequest('/api/timeline', {
         ...context,
         location: sanitizeInput(context.location),
@@ -100,6 +107,10 @@ export async function generateTimeline(context, options) {
  * @returns {Promise<Object>} Chat response with answer, sources, follow-ups
  */
 export async function sendChatMessage(message, userContext = {}, conversationHistory = [], options) {
+    trackEvent('send_chat_message', {
+        message_length: message.length,
+        has_history: conversationHistory.length > 0,
+    });
     return apiRequest('/api/chat', {
         message: sanitizeInput(message),
         userContext,

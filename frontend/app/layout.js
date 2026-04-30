@@ -1,4 +1,5 @@
 import "./globals.css";
+import GoogleAnalytics from "../components/GoogleAnalytics";
 
 export const metadata = {
     title: "Path2Poll — AI Election Assistant",
@@ -48,6 +49,7 @@ export default function RootLayout({ children }) {
                 />
             </head>
             <body className="antialiased">
+                <GoogleAnalytics />
                 <a href="#main-content" className="skip-link">
                     Skip to main content
                 </a>

@@ -1,13 +1,16 @@
-// ---------------------------------------------------------------------------
-// Cache Service — Google Cloud Firestore + In-Memory LRU Fallback
-// ---------------------------------------------------------------------------
-// Provides a tiered caching strategy:
-//   1. In-memory LRU cache (fast, always available)
-//   2. Google Cloud Firestore (persistent, shared across instances)
-//
-// When running on Cloud Run, Firestore provides cross-instance cache sharing.
-// Locally or when Firestore is unavailable, falls back to in-memory only.
-// ---------------------------------------------------------------------------
+/**
+ * @module cacheService
+ * @fileoverview Google Cloud Firestore + In-Memory LRU Cache Service.
+ *
+ * Provides a tiered caching strategy:
+ *   1. In-memory LRU cache (fast, always available)
+ *   2. Google Cloud Firestore (persistent, shared across Cloud Run instances)
+ *
+ * When running on Google Cloud Run, Firestore provides cross-instance cache
+ * sharing. Locally or when Firestore is unavailable, falls back to in-memory.
+ *
+ * Google Services: Google Cloud Firestore (@google-cloud/firestore)
+ */
 
 import { logger } from "./loggingService.js";
 import crypto from "crypto";
